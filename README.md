@@ -34,6 +34,17 @@ HOST=0.0.0.0 npm start
 
 Then open `http://YOUR-LAPTOP-IP:4317` on phones.
 
+## Railway
+
+Railway provides the `PORT` environment variable automatically. The app does not force a localhost-only bind, so Railway can route traffic to it.
+
+Use these settings:
+
+```text
+Start command: npm start
+Admin key: set ADMIN_KEY in Railway variables if you do not want the default key
+```
+
 ## Submission Rules
 
 - Teams enter a team name, then see the 8 mini-connect boxes.

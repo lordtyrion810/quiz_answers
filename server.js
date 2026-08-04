@@ -4,7 +4,7 @@ const path = require("path");
 const crypto = require("crypto");
 
 const PORT = Number(process.env.PORT || 4317);
-const HOST = process.env.HOST || "127.0.0.1";
+const HOST = process.env.HOST;
 const ADMIN_KEY = process.env.ADMIN_KEY || "house";
 const PUBLIC_DIR = path.join(__dirname, "public");
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
@@ -479,7 +479,8 @@ function csvCell(value) {
 loadState();
 
 server.listen(PORT, HOST, () => {
-  console.log(`Mini Connect site running at http://${HOST}:${PORT}`);
+  const address = HOST || "0.0.0.0";
+  console.log(`Mini Connect site running at http://${address}:${PORT}`);
   console.log(`Admin page: http://localhost:${PORT}/admin.html?key=${ADMIN_KEY}`);
   console.log(`Saving submissions to ${DATA_FILE}`);
 });
