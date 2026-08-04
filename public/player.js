@@ -1,0 +1,132 @@
+const joinCard = document.querySelector("#joinCard");
+const playCard = document.querySelector("#playCard");
+const historyCard = document.querySelector("#historyCard");
+const joinForm = document.querySelector("#joinForm");
+const teamNameInput = document.querySelector("#teamName");
+const teamLabel = document.querySelector("#teamLabel");
+const questionForms = document.querySelector("#questionForms");
+const message = document.querySelector("#message");
+const history = document.querySelector("#history");
+
+let teamId = localStorage.getItem("miniConnectTeamId");
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "Something went wrong");
+  return data;
+}
+
+function render(state) {
+  const prompts = state.miniPrompts;
+  if (state.team) {
+    joinCard.classList.add("hidden");
+    playCard.classList.remove("hidden");
+    historyCard.classList.remove("hidden");
+    teamLabel.textContent = state.team.name;
+  } else {
+    joinCard.classList.remove("hidden");
+    playCard.classList.add("hidden");
+    historyCard.classList.add("hidden");
+  }
+
+  const drafts = new Map(
+    Array.from(questionForms.querySelectorAll("form")).map((form) => [
+      form.dataset.promptId,
+      form.querySelector("input")?.value || "",
+    ])
+  );
+  questionForms.innerHTML = prompts
+    .map((prompt, index) => {
+      const isOpen = state.enabled[prompt.gateId] === true;
+      const draft = drafts.get(prompt.id) || "";
+      return `
+        <form class="answer-form question-form tile-${(index % 4) + 1} ${isOpen ? "" : "disabled-tile"}" data-prompt-id="${prompt.id}">
+          <label>
+            ${escapeHtml(prompt.label)}
+            <input maxlength="200" value="${escapeAttribute(draft)}" placeholder="${isOpen ? "Type your answer" : "Closed by host"}" ${isOpen ? "" : "disabled"} required>
+          </label>
+          <button type="submit" ${isOpen ? "" : "disabled"}>Submit</button>
+        </form>
+      `;
+    })
+    .join("");
+
+  questionForms.querySelectorAll("form").forEach((form) => {
+    form.addEventListener("submit", submitAnswer);
+  });
+
+  history.innerHTML = state.teamSubmissions.length
+    ? state.teamSubmissions
+        .filter((submission) => prompts.some((prompt) => prompt.id === submission.promptId))
+        .slice()
+        .reverse()
+        .map((submission) => {
+          const prompt = prompts.find((item) => item.id === submission.promptId);
+          const status = submission.correct === true ? "correct" : submission.correct === false ? "wrong" : "pending";
+          const label = submission.correct === true ? "Correct" : submission.correct === false ? "Wrong" : "Received";
+          const time = new Date(submission.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+          return `<div class="history-item"><strong>${escapeHtml(prompt?.label || submission.promptId)}:</strong> ${escapeHtml(submission.answer)} <span class="status ${status}">${label}</span><div class="subtle">${time}</div></div>`;
+        })
+        .join("")
+    : "<p class=\"subtle\">No answers submitted yet.</p>";
+}
+
+async function refresh() {
+  const state = await api(`/api/state${teamId ? `?teamId=${encodeURIComponent(teamId)}` : ""}`);
+  render(state);
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#039;",
+  }[char]));
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value);
+}
+
+joinForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  message.textContent = "";
+  try {
+    const data = await api("/api/join", {
+      method: "POST",
+      body: JSON.stringify({ name: teamNameInput.value }),
+    });
+    teamId = data.team.id;
+    localStorage.setItem("miniConnectTeamId", teamId);
+    render(data.state);
+  } catch (error) {
+    message.textContent = error.message;
+  }
+});
+
+async function submitAnswer(event) {
+  event.preventDefault();
+  message.textContent = "";
+  const form = event.currentTarget;
+  const input = form.querySelector("input");
+  try {
+    const data = await api("/api/submit", {
+      method: "POST",
+      body: JSON.stringify({ teamId, promptId: form.dataset.promptId, answer: input.value }),
+    });
+    input.value = "";
+    message.textContent = "Submitted.";
+    render(data.state);
+  } catch (error) {
+    message.textContent = error.message;
+  }
+}
+
+new EventSource("/events").addEventListener("message", refresh);
+refresh();

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Admin - House Rules Mini Connects</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell admin-shell">
+      <section class="hero">
+        <div class="color-strip" aria-hidden="true">
+          <span class="yellow"></span>
+          <span class="green"></span>
+          <span class="blue"></span>
+          <span class="purple"></span>
+        </div>
+        <p class="eyebrow">Host Screen</p>
+        <h1>Mini Connect Admin</h1>
+        <p class="subtle">Review teams and timestamped submissions.</p>
+      </section>
+
+      <section class="panel">
+        <div class="admin-controls">
+          <button id="exportButton" type="button" class="secondary">Export CSV</button>
+          <button id="resetButton" type="button" class="danger">Reset game</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Submission Switches</h2>
+        <div id="gates" class="gate-list"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Teams</h2>
+        <div id="teams" class="team-list"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Scores</h2>
+        <ol id="scores" class="score-list"></ol>
+        <div class="table-wrap">
+          <table id="scoreTable" class="score-table"></table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Submissions</h2>
+        <div id="submissions" class="submissions"></div>
+      </section>
+    </main>
+    <script src="/admin.js"></script>
+  </body>
+</html>

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>House Rules Mini Connects</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div class="color-strip" aria-hidden="true">
+          <span class="yellow"></span>
+          <span class="green"></span>
+          <span class="blue"></span>
+          <span class="purple"></span>
+        </div>
+        <p class="eyebrow">House Rules</p>
+        <h1>Mini Connects</h1>
+        <p class="subtle">Type the connection from the slide.</p>
+      </section>
+
+      <section id="joinCard" class="panel">
+        <h2>Join</h2>
+        <form id="joinForm" class="stack">
+          <label>
+            Team name
+            <input id="teamName" autocomplete="team" maxlength="50" required>
+          </label>
+          <button type="submit">Join quiz</button>
+        </form>
+      </section>
+
+      <section id="playCard" class="panel hidden">
+        <p class="eyebrow" id="teamLabel"></p>
+        <h2>Your answers</h2>
+        <p class="subtle">Multiple guesses are allowed while submissions are open.</p>
+        <div id="questionForms" class="question-forms"></div>
+        <p id="message" class="message"></p>
+      </section>
+
+      <section id="historyCard" class="panel hidden">
+        <h2>Your submissions</h2>
+        <div id="history" class="history"></div>
+      </section>
+    </main>
+    <script src="/player.js"></script>
+  </body>
+</html>
