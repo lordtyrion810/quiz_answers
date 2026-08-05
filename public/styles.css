@@ -117,7 +117,8 @@ h2 {
 .answer-form,
 .admin-controls,
 .question-forms,
-.gate-list {
+.gate-list,
+.auto-correct-list {
   display: grid;
   gap: 12px;
 }
@@ -339,6 +340,21 @@ button.correct {
   accent-color: #111;
 }
 
+.compact-switch {
+  min-height: 100%;
+}
+
+.auto-correct-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 190px;
+  gap: 12px;
+  align-items: stretch;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
 .submissions,
 .history,
 .team-list,
@@ -346,6 +362,14 @@ button.correct {
   display: grid;
   gap: 10px;
   margin-top: 12px;
+}
+
+.submission-filters {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) minmax(140px, 0.8fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-top: 14px;
 }
 
 .score-list {
@@ -378,11 +402,17 @@ button.correct {
 }
 
 .score-table th,
-.score-table td {
+.score-table td,
+.submissions-table th,
+.submissions-table td {
   padding: 10px;
   border-bottom: 1px solid var(--line);
-  text-align: right;
   white-space: nowrap;
+}
+
+.score-table th,
+.score-table td {
+  text-align: right;
 }
 
 .score-table th:first-child,
@@ -390,15 +420,56 @@ button.correct {
   text-align: left;
 }
 
-.score-table tbody tr:last-child td {
+.score-table tbody tr:last-child td,
+.submissions-table tbody tr:last-child td {
   border-bottom: 0;
 }
 
-.submission {
+.submissions-table {
+  width: 100%;
+  min-width: 940px;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.submissions-table th,
+.submissions-table td {
+  text-align: left;
+  vertical-align: middle;
+}
+
+.submissions-table th:nth-child(4),
+.submissions-table td:nth-child(4),
+.submissions-table th:nth-child(6),
+.submissions-table td:nth-child(6) {
+  text-align: right;
+}
+
+.submissions-table th {
+  background: #f2ece0;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.submissions-table-wrap {
+  margin-top: 12px;
+}
+
+.submission-actions {
   display: grid;
-  grid-template-columns: 90px 160px 1fr 120px auto auto;
-  gap: 10px;
-  align-items: center;
+  grid-template-columns: repeat(2, auto);
+  gap: 8px;
+  justify-content: start;
+}
+
+.submission-actions button {
+  min-height: 38px;
+  padding: 0 12px;
+  font-size: 12px;
 }
 
 .team-item {
@@ -445,8 +516,9 @@ button.correct {
 @media (max-width: 760px) {
   .answer-form,
   .admin-controls,
-  .submission,
   .team-item,
+  .auto-correct-row,
+  .submission-filters,
   .nav-panel {
     grid-template-columns: 1fr;
   }

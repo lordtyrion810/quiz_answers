@@ -42,14 +42,16 @@ function render(state) {
   questionForms.innerHTML = prompts
     .map((prompt, index) => {
       const isOpen = state.enabled[prompt.gateId] === true;
+      const isLocked = state.lockedPrompts?.[prompt.id] === true;
+      const correctSubmission = state.teamSubmissions.some((submission) => submission.promptId === prompt.id && submission.correct === true);
       const draft = drafts.get(prompt.id) || "";
       return `
-        <form class="answer-form question-form tile-${(index % 4) + 1} ${isOpen ? "" : "disabled-tile"}" data-prompt-id="${prompt.id}">
+        <form class="answer-form question-form tile-${(index % 4) + 1} ${isOpen && !isLocked ? "" : "disabled-tile"}" data-prompt-id="${prompt.id}">
           <label>
             ${escapeHtml(prompt.label)}
-            <input maxlength="200" value="${escapeAttribute(draft)}" placeholder="${isOpen ? "Type your answer" : "Closed by host"}" ${isOpen ? "" : "disabled"} required>
+            <input maxlength="200" value="${isLocked ? "" : escapeAttribute(draft)}" placeholder="${answerPlaceholder(isOpen, isLocked, correctSubmission)}" ${isOpen && !isLocked ? "" : "disabled"} required>
           </label>
-          <button type="submit" ${isOpen ? "" : "disabled"}>Submit</button>
+          <button type="submit" ${isOpen && !isLocked ? "" : "disabled"}>${lockedButtonLabel(isLocked, correctSubmission)}</button>
         </form>
       `;
     })
@@ -92,6 +94,17 @@ function escapeHtml(value) {
 
 function escapeAttribute(value) {
   return escapeHtml(value);
+}
+
+function answerPlaceholder(isOpen, isLocked, isCorrect) {
+  if (isCorrect) return "Correct";
+  if (isLocked) return "Submitted";
+  return isOpen ? "Type your answer" : "Closed by host";
+}
+
+function lockedButtonLabel(isLocked, isCorrect) {
+  if (isCorrect) return "Correct";
+  return isLocked ? "Submitted" : "Submit";
 }
 
 joinForm.addEventListener("submit", async (event) => {

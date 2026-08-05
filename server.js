@@ -105,8 +105,19 @@ const defaultEnabled = {
   m8: false,
 };
 
+const defaultAutoCorrect = Object.fromEntries(
+  prompts.map((prompt) => [
+    prompt.id,
+    {
+      enabled: false,
+      answer: prompt.answer.startsWith("TBD") ? "" : prompt.answer,
+    },
+  ])
+);
+
 const state = {
   enabled: { ...defaultEnabled },
+  autoCorrect: clone(defaultAutoCorrect),
   teams: [],
   submissions: [],
 };
@@ -121,6 +132,7 @@ function loadState() {
         state.enabled[gateId] = saved.enabled[gateId];
       }
     }
+    state.autoCorrect = mergeAutoCorrect(saved.autoCorrect);
     state.teams = Array.isArray(saved.teams) ? saved.teams : [];
     state.submissions = Array.isArray(saved.submissions)
       ? saved.submissions.map(migrateSubmission).filter((submission) => isKnownPrompt(submission.promptId))
@@ -136,6 +148,7 @@ function saveState() {
   fs.writeFileSync(tempFile, JSON.stringify({
     savedAt: new Date().toISOString(),
     enabled: state.enabled,
+    autoCorrect: state.autoCorrect,
     teams: state.teams,
     submissions: state.submissions,
   }, null, 2));
@@ -172,6 +185,40 @@ function isKnownPrompt(promptId) {
   return prompts.some((prompt) => prompt.id === promptId);
 }
 
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function mergeAutoCorrect(savedAutoCorrect) {
+  const merged = clone(defaultAutoCorrect);
+  if (!savedAutoCorrect || typeof savedAutoCorrect !== "object") return merged;
+
+  for (const prompt of prompts) {
+    const saved = savedAutoCorrect[prompt.id];
+    if (!saved || typeof saved !== "object") continue;
+    merged[prompt.id] = {
+      enabled: saved.enabled === true,
+      answer: String(saved.answer || "").slice(0, 200),
+    };
+  }
+
+  return merged;
+}
+
+function hasSubmission(teamId, promptId) {
+  return state.submissions.some((submission) => (
+    submission.teamId === teamId &&
+    submission.promptId === promptId
+  ));
+}
+
+function shouldAutoMarkCorrect(promptId, answer) {
+  const config = state.autoCorrect[promptId];
+  const accepted = normalize(config?.answer);
+  if (!config?.enabled || !accepted) return false;
+  return normalize(answer).includes(accepted);
+}
+
 function computeScores() {
   const scoredSubmissionIds = new Map();
   const teamScores = new Map(state.teams.map((team) => [team.id, 0]));
@@ -204,14 +251,27 @@ function computeScores() {
 }
 
 function publicState(teamId) {
+  const teamSubmissions = state.submissions
+    .filter((submission) => submission.teamId === teamId);
+  const publicPrompts = prompts.map(publicPrompt);
   return {
     enabled: state.enabled,
-    miniPrompts,
-    prompts,
+    miniPrompts: publicPrompts.filter((prompt) => prompt.section === "mini"),
+    prompts: publicPrompts,
     team: state.teams.find((team) => team.id === teamId) || null,
-    teamSubmissions: state.submissions
-      .filter((submission) => submission.teamId === teamId)
+    teamSubmissions,
+    lockedPrompts: Object.fromEntries(
+      prompts.map((prompt) => [
+        prompt.id,
+        teamSubmissions.some((submission) => submission.promptId === prompt.id),
+      ])
+    ),
   };
+}
+
+function publicPrompt(prompt) {
+  const { answer, ...safePrompt } = prompt;
+  return safePrompt;
 }
 
 function adminState() {
@@ -219,6 +279,7 @@ function adminState() {
   return {
     ...publicState(null),
     adminKey: ADMIN_KEY,
+    autoCorrect: state.autoCorrect,
     miniPrompts,
     prompts,
     teams: state.teams.map((team) => ({
@@ -401,6 +462,10 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 403, { error: "Submissions are closed for this section" });
         return;
       }
+      if (hasSubmission(team.id, prompt.id)) {
+        sendJson(res, 403, { error: "Already submitted. This answer is locked." });
+        return;
+      }
       const submission = {
         id: crypto.randomUUID(),
         teamId: team.id,
@@ -409,7 +474,7 @@ const server = http.createServer(async (req, res) => {
         phase,
         answer,
         normalizedAnswer: normalize(answer),
-        correct: null,
+        correct: shouldAutoMarkCorrect(prompt.id, answer) ? true : null,
         createdAt: Date.now(),
       };
       state.submissions.push(submission);
@@ -446,6 +511,16 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         state.enabled[gateId] = body.enabled === true;
+      } else if (url.pathname === "/api/admin/autocorrect") {
+        const promptId = String(body.promptId || "");
+        if (!isKnownPrompt(promptId)) {
+          sendJson(res, 400, { error: "Bad prompt id" });
+          return;
+        }
+        state.autoCorrect[promptId] = {
+          enabled: body.enabled === true,
+          answer: String(body.answer || "").trim().slice(0, 200),
+        };
       } else if (url.pathname === "/api/admin/remove-team") {
         const teamId = String(body.teamId || "");
         state.teams = state.teams.filter((team) => team.id !== teamId);

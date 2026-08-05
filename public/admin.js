@@ -3,12 +3,19 @@ const adminKey = params.get("key") || prompt("Admin key");
 const exportButton = document.querySelector("#exportButton");
 const resetButton = document.querySelector("#resetButton");
 const gates = document.querySelector("#gates");
+const autoCorrect = document.querySelector("#autoCorrect");
 const teams = document.querySelector("#teams");
 const scores = document.querySelector("#scores");
 const scoreTable = document.querySelector("#scoreTable");
+const submissionFilters = document.querySelector("#submissionFilters");
 const submissions = document.querySelector("#submissions");
 
 let latestState = null;
+const filters = {
+  promptId: "all",
+  teamId: "all",
+  status: "all",
+};
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -50,6 +57,43 @@ function render(state) {
   gates.querySelectorAll("[data-gate-id]").forEach((input) => {
     input.addEventListener("change", () => {
       adminPost("/api/admin/toggle", { gateId: input.dataset.gateId, enabled: input.checked });
+    });
+  });
+
+  autoCorrect.innerHTML = state.prompts
+    .map((prompt) => {
+      const config = state.autoCorrect[prompt.id] || { enabled: false, answer: "" };
+      return `
+        <div class="auto-correct-row">
+          <label>
+            ${escapeHtml(prompt.label)}
+            <input data-autocorrect-answer="${prompt.id}" maxlength="200" value="${escapeAttribute(config.answer || "")}" placeholder="Accepted answer">
+          </label>
+          <label class="switch-row compact-switch">
+            <span>
+              <strong>Auto mark</strong>
+              <small>${config.enabled ? "On" : "Off"}</small>
+            </span>
+            <input type="checkbox" data-autocorrect-enabled="${prompt.id}" ${config.enabled ? "checked" : ""}>
+          </label>
+        </div>
+      `;
+    })
+    .join("");
+
+  autoCorrect.querySelectorAll("[data-autocorrect-answer]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const promptId = input.dataset.autocorrectAnswer;
+      const checkbox = autoCorrect.querySelector(`[data-autocorrect-enabled="${cssEscape(promptId)}"]`);
+      adminPost("/api/admin/autocorrect", { promptId, answer: input.value, enabled: checkbox?.checked === true });
+    });
+  });
+
+  autoCorrect.querySelectorAll("[data-autocorrect-enabled]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const promptId = input.dataset.autocorrectEnabled;
+      const answerInput = autoCorrect.querySelector(`[data-autocorrect-answer="${cssEscape(promptId)}"]`);
+      adminPost("/api/admin/autocorrect", { promptId, answer: answerInput?.value || "", enabled: input.checked });
     });
   });
 
@@ -112,8 +156,10 @@ function render(state) {
     return (promptOrder.get(a.promptId) ?? 999) - (promptOrder.get(b.promptId) ?? 999) || a.createdAt - b.createdAt;
   });
 
+  renderSubmissionFilters(state);
+  const filteredSubmissions = sortedSubmissions.filter((submission) => submissionMatchesFilters(submission));
   submissions.innerHTML = sortedSubmissions.length
-    ? sortedSubmissions.map((submission) => renderSubmission(submission, state.prompts)).join("")
+    ? renderSubmissionsTable(filteredSubmissions, state.prompts)
     : "<p class=\"subtle\">No submissions yet.</p>";
 
   submissions.querySelectorAll("[data-mark]").forEach((button) => {
@@ -125,22 +171,114 @@ function render(state) {
 
 }
 
-function renderSubmission(submission, prompts) {
-  const prompt = prompts.find((item) => item.id === submission.promptId);
-  const status = submission.correct === true ? "correct" : submission.correct === false ? "wrong" : "pending";
-  const label = submission.correct === true ? `Correct, ${submission.points} pts` : submission.correct === false ? "Wrong" : "Pending";
-  const time = new Date(submission.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+function renderSubmissionFilters(state) {
+  submissionFilters.innerHTML = `
+    <label>
+      Prompt
+      <select data-filter="promptId">
+        <option value="all">All prompts</option>
+        ${state.prompts.map((prompt) => `<option value="${escapeAttribute(prompt.id)}" ${filters.promptId === prompt.id ? "selected" : ""}>${escapeHtml(prompt.label)}</option>`).join("")}
+      </select>
+    </label>
+    <label>
+      Team
+      <select data-filter="teamId">
+        <option value="all">All teams</option>
+        ${state.teams
+          .slice()
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((team) => `<option value="${escapeAttribute(team.id)}" ${filters.teamId === team.id ? "selected" : ""}>${escapeHtml(team.name)}</option>`)
+          .join("")}
+      </select>
+    </label>
+    <label>
+      Status
+      <select data-filter="status">
+        <option value="all" ${filters.status === "all" ? "selected" : ""}>All statuses</option>
+        <option value="pending" ${filters.status === "pending" ? "selected" : ""}>Pending</option>
+        <option value="correct" ${filters.status === "correct" ? "selected" : ""}>Correct</option>
+        <option value="wrong" ${filters.status === "wrong" ? "selected" : ""}>Wrong</option>
+      </select>
+    </label>
+    <button type="button" class="secondary" data-clear-filters>Clear</button>
+  `;
+
+  submissionFilters.querySelectorAll("[data-filter]").forEach((input) => {
+    input.addEventListener("change", () => {
+      filters[input.dataset.filter] = input.value;
+      render(latestState);
+    });
+  });
+
+  submissionFilters.querySelector("[data-clear-filters]").addEventListener("click", () => {
+    filters.promptId = "all";
+    filters.teamId = "all";
+    filters.status = "all";
+    render(latestState);
+  });
+}
+
+function submissionMatchesFilters(submission) {
+  if (filters.promptId !== "all" && submission.promptId !== filters.promptId) return false;
+  if (filters.teamId !== "all" && submission.teamId !== filters.teamId) return false;
+  if (filters.status !== "all" && submissionStatus(submission) !== filters.status) return false;
+  return true;
+}
+
+function renderSubmissionsTable(sortedSubmissions, prompts) {
+  if (!sortedSubmissions.length) {
+    return "<p class=\"subtle\">No submissions match the current filters.</p>";
+  }
+
   return `
-    <div class="submission">
-      <div><strong>${escapeHtml(shortLabel(prompt) || submission.promptId)}</strong></div>
-      <div><strong>${escapeHtml(submission.teamName)}</strong></div>
-      <div class="submission-answer">${escapeHtml(submission.answer)}</div>
-      <div>${time}</div>
-      <div class="status ${status}">${label}</div>
-      <button class="correct" data-mark="correct" data-id="${submission.id}" type="button">Correct</button>
-      <button class="wrong" data-mark="wrong" data-id="${submission.id}" type="button">Wrong</button>
+    <div class="table-wrap submissions-table-wrap">
+      <table class="submissions-table">
+        <thead>
+          <tr>
+            <th>Prompt</th>
+            <th>Team</th>
+            <th>Answer</th>
+            <th>Time</th>
+            <th>Status</th>
+            <th>Points</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sortedSubmissions.map((submission) => renderSubmissionRow(submission, prompts)).join("")}
+        </tbody>
+      </table>
     </div>
   `;
+}
+
+function renderSubmissionRow(submission, prompts) {
+  const prompt = prompts.find((item) => item.id === submission.promptId);
+  const status = submissionStatus(submission);
+  const label = submission.correct === true ? "Correct" : submission.correct === false ? "Wrong" : "Pending";
+  const time = new Date(submission.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return `
+    <tr>
+      <td><strong>${escapeHtml(shortLabel(prompt) || submission.promptId)}</strong></td>
+      <td>${escapeHtml(submission.teamName)}</td>
+      <td class="submission-answer">${escapeHtml(submission.answer)}</td>
+      <td>${time}</td>
+      <td><span class="status ${status}">${label}</span></td>
+      <td>${submission.points || 0}</td>
+      <td>
+        <div class="submission-actions">
+          <button class="correct" data-mark="correct" data-id="${submission.id}" type="button">Correct</button>
+          <button class="wrong" data-mark="wrong" data-id="${submission.id}" type="button">Wrong</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function submissionStatus(submission) {
+  if (submission.correct === true) return "correct";
+  if (submission.correct === false) return "wrong";
+  return "pending";
 }
 
 function shortLabel(prompt) {
@@ -157,6 +295,15 @@ function escapeHtml(value) {
     "\"": "&quot;",
     "'": "&#039;",
   }[char]));
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value);
+}
+
+function cssEscape(value) {
+  if (window.CSS?.escape) return CSS.escape(value);
+  return String(value).replace(/["\\]/g, "\\$&");
 }
 
 async function refresh() {
