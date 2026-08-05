@@ -110,14 +110,19 @@ const defaultAutoCorrect = Object.fromEntries(
     prompt.id,
     {
       enabled: false,
-      answer: prompt.answer.startsWith("TBD") ? "" : prompt.answer,
+      aliases: prompt.answer.startsWith("TBD") ? [] : [prompt.answer],
     },
   ])
 );
 
+const defaultSettings = {
+  showLeaderboard: false,
+};
+
 const state = {
   enabled: { ...defaultEnabled },
   autoCorrect: clone(defaultAutoCorrect),
+  settings: { ...defaultSettings },
   teams: [],
   submissions: [],
 };
@@ -133,6 +138,10 @@ function loadState() {
       }
     }
     state.autoCorrect = mergeAutoCorrect(saved.autoCorrect);
+    state.settings = {
+      ...defaultSettings,
+      ...(saved.settings && typeof saved.settings === "object" ? saved.settings : {}),
+    };
     state.teams = Array.isArray(saved.teams) ? saved.teams : [];
     state.submissions = Array.isArray(saved.submissions)
       ? saved.submissions.map(migrateSubmission).filter((submission) => isKnownPrompt(submission.promptId))
@@ -149,6 +158,7 @@ function saveState() {
     savedAt: new Date().toISOString(),
     enabled: state.enabled,
     autoCorrect: state.autoCorrect,
+    settings: state.settings,
     teams: state.teams,
     submissions: state.submissions,
   }, null, 2));
@@ -196,17 +206,27 @@ function mergeAutoCorrect(savedAutoCorrect) {
   for (const prompt of prompts) {
     const saved = savedAutoCorrect[prompt.id];
     if (!saved || typeof saved !== "object") continue;
+    const aliases = Array.isArray(saved.aliases)
+      ? saved.aliases
+      : String(saved.answer || "").split(",");
     merged[prompt.id] = {
       enabled: saved.enabled === true,
-      answer: String(saved.answer || "").slice(0, 200),
+      aliases: cleanAliases(aliases),
     };
   }
 
   return merged;
 }
 
-function hasSubmission(teamId, promptId) {
-  return state.submissions.some((submission) => (
+function cleanAliases(aliases) {
+  return aliases
+    .map((alias) => String(alias || "").trim().slice(0, 200))
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+function findSubmission(teamId, promptId) {
+  return state.submissions.find((submission) => (
     submission.teamId === teamId &&
     submission.promptId === promptId
   ));
@@ -214,9 +234,12 @@ function hasSubmission(teamId, promptId) {
 
 function shouldAutoMarkCorrect(promptId, answer) {
   const config = state.autoCorrect[promptId];
-  const accepted = normalize(config?.answer);
-  if (!config?.enabled || !accepted) return false;
-  return normalize(answer).includes(accepted);
+  if (!config?.enabled) return false;
+  const normalizedAnswer = normalize(answer);
+  return cleanAliases(config.aliases || []).some((alias) => {
+    const accepted = normalize(alias);
+    return accepted && normalizedAnswer.includes(accepted);
+  });
 }
 
 function computeScores() {
@@ -254,12 +277,25 @@ function publicState(teamId) {
   const teamSubmissions = state.submissions
     .filter((submission) => submission.teamId === teamId);
   const publicPrompts = prompts.map(publicPrompt);
+  const scores = computeScores();
   return {
     enabled: state.enabled,
+    settings: {
+      showLeaderboard: state.settings.showLeaderboard === true,
+    },
     miniPrompts: publicPrompts.filter((prompt) => prompt.section === "mini"),
     prompts: publicPrompts,
     team: state.teams.find((team) => team.id === teamId) || null,
     teamSubmissions,
+    leaderboard: state.settings.showLeaderboard === true
+      ? state.teams
+          .map((team) => ({
+            id: team.id,
+            name: team.name,
+            score: scores.teamScores.get(team.id) || 0,
+          }))
+          .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+      : [],
     lockedPrompts: Object.fromEntries(
       prompts.map((prompt) => [
         prompt.id,
@@ -280,6 +316,7 @@ function adminState() {
     ...publicState(null),
     adminKey: ADMIN_KEY,
     autoCorrect: state.autoCorrect,
+    settings: state.settings,
     miniPrompts,
     prompts,
     teams: state.teams.map((team) => ({
@@ -462,9 +499,13 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 403, { error: "Submissions are closed for this section" });
         return;
       }
-      if (hasSubmission(team.id, prompt.id)) {
-        sendJson(res, 403, { error: "Already submitted. This answer is locked." });
+      const existingSubmission = findSubmission(team.id, prompt.id);
+      if (existingSubmission?.correct === true || existingSubmission?.correct === false) {
+        sendJson(res, 403, { error: "This answer has already been marked and is locked." });
         return;
+      }
+      if (existingSubmission) {
+        state.submissions = state.submissions.filter((submission) => submission.id !== existingSubmission.id);
       }
       const submission = {
         id: crypto.randomUUID(),
@@ -480,7 +521,7 @@ const server = http.createServer(async (req, res) => {
       state.submissions.push(submission);
       saveState();
       broadcast();
-      sendJson(res, 200, { submission, state: publicState(team.id) });
+      sendJson(res, 200, { submission, updated: Boolean(existingSubmission), state: publicState(team.id) });
       return;
     }
 
@@ -519,8 +560,28 @@ const server = http.createServer(async (req, res) => {
         }
         state.autoCorrect[promptId] = {
           enabled: body.enabled === true,
-          answer: String(body.answer || "").trim().slice(0, 200),
+          aliases: cleanAliases(Array.isArray(body.aliases) ? body.aliases : String(body.aliases || body.answer || "").split(",")),
         };
+      } else if (url.pathname === "/api/admin/settings") {
+        state.settings.showLeaderboard = body.showLeaderboard === true;
+      } else if (url.pathname === "/api/admin/rename-team") {
+        const teamId = String(body.teamId || "");
+        const name = String(body.name || "").trim().slice(0, 50);
+        const team = state.teams.find((item) => item.id === teamId);
+        if (!team) {
+          sendJson(res, 404, { error: "Team not found" });
+          return;
+        }
+        if (!name) {
+          sendJson(res, 400, { error: "Team name required" });
+          return;
+        }
+        const duplicate = state.teams.find((item) => item.id !== teamId && normalize(item.name) === normalize(name));
+        if (duplicate) {
+          sendJson(res, 409, { error: "Another team already has that name" });
+          return;
+        }
+        team.name = name;
       } else if (url.pathname === "/api/admin/remove-team") {
         const teamId = String(body.teamId || "");
         state.teams = state.teams.filter((team) => team.id !== teamId);

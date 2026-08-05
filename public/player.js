@@ -6,6 +6,8 @@ const teamNameInput = document.querySelector("#teamName");
 const teamLabel = document.querySelector("#teamLabel");
 const questionForms = document.querySelector("#questionForms");
 const message = document.querySelector("#message");
+const leaderboardCard = document.querySelector("#leaderboardCard");
+const leaderboard = document.querySelector("#leaderboard");
 const history = document.querySelector("#history");
 
 let teamId = localStorage.getItem("miniConnectTeamId");
@@ -30,6 +32,7 @@ function render(state) {
   } else {
     joinCard.classList.remove("hidden");
     playCard.classList.add("hidden");
+    leaderboardCard.classList.add("hidden");
     historyCard.classList.add("hidden");
   }
 
@@ -42,16 +45,20 @@ function render(state) {
   questionForms.innerHTML = prompts
     .map((prompt, index) => {
       const isOpen = state.enabled[prompt.gateId] === true;
-      const isLocked = state.lockedPrompts?.[prompt.id] === true;
-      const correctSubmission = state.teamSubmissions.some((submission) => submission.promptId === prompt.id && submission.correct === true);
-      const draft = drafts.get(prompt.id) || "";
+      const existingSubmission = state.teamSubmissions.find((submission) => submission.promptId === prompt.id);
+      const isCorrect = existingSubmission?.correct === true;
+      const isMarked = existingSubmission?.correct === true || existingSubmission?.correct === false;
+      const hasSubmission = Boolean(existingSubmission);
+      const canEdit = isOpen && hasSubmission && !isMarked;
+      const canSubmit = isOpen && (!hasSubmission || canEdit);
+      const draft = drafts.get(prompt.id) || existingSubmission?.answer || "";
       return `
-        <form class="answer-form question-form tile-${(index % 4) + 1} ${isOpen && !isLocked ? "" : "disabled-tile"}" data-prompt-id="${prompt.id}">
+        <form class="answer-form question-form tile-${(index % 4) + 1} ${canSubmit ? "" : "disabled-tile"}" data-prompt-id="${prompt.id}" data-is-update="${canEdit ? "true" : "false"}">
           <label>
             ${escapeHtml(prompt.label)}
-            <input maxlength="200" value="${isLocked ? "" : escapeAttribute(draft)}" placeholder="${answerPlaceholder(isOpen, isLocked, correctSubmission)}" ${isOpen && !isLocked ? "" : "disabled"} required>
+            <input maxlength="200" value="${escapeAttribute(canSubmit ? draft : "")}" placeholder="${answerPlaceholder(isOpen, hasSubmission, isCorrect)}" ${canSubmit ? "" : "disabled"} required>
           </label>
-          <button type="submit" ${isOpen && !isLocked ? "" : "disabled"}>${lockedButtonLabel(isLocked, correctSubmission)}</button>
+          <button type="submit" ${canSubmit ? "" : "disabled"}>${buttonLabel(hasSubmission, canEdit, isCorrect)}</button>
         </form>
       `;
     })
@@ -60,6 +67,18 @@ function render(state) {
   questionForms.querySelectorAll("form").forEach((form) => {
     form.addEventListener("submit", submitAnswer);
   });
+
+  if (state.team && state.settings?.showLeaderboard === true) {
+    leaderboardCard.classList.remove("hidden");
+    leaderboard.innerHTML = state.leaderboard.length
+      ? state.leaderboard
+          .map((team) => `<li><span>${escapeHtml(team.name)}</span><strong>${team.score}</strong></li>`)
+          .join("")
+      : "<li><span>No scores yet</span><strong>0</strong></li>";
+  } else {
+    leaderboardCard.classList.add("hidden");
+    leaderboard.innerHTML = "";
+  }
 
   history.innerHTML = state.teamSubmissions.length
     ? state.teamSubmissions
@@ -96,15 +115,16 @@ function escapeAttribute(value) {
   return escapeHtml(value);
 }
 
-function answerPlaceholder(isOpen, isLocked, isCorrect) {
+function answerPlaceholder(isOpen, hasSubmission, isCorrect) {
   if (isCorrect) return "Correct";
-  if (isLocked) return "Submitted";
+  if (hasSubmission) return "Submitted";
   return isOpen ? "Type your answer" : "Closed by host";
 }
 
-function lockedButtonLabel(isLocked, isCorrect) {
+function buttonLabel(hasSubmission, canEdit, isCorrect) {
   if (isCorrect) return "Correct";
-  return isLocked ? "Submitted" : "Submit";
+  if (canEdit) return "Update";
+  return hasSubmission ? "Submitted" : "Submit";
 }
 
 joinForm.addEventListener("submit", async (event) => {
@@ -134,7 +154,7 @@ async function submitAnswer(event) {
       body: JSON.stringify({ teamId, promptId: form.dataset.promptId, answer: input.value }),
     });
     input.value = "";
-    message.textContent = "Submitted.";
+    message.textContent = data.updated ? "Updated." : "Submitted.";
     render(data.state);
   } catch (error) {
     message.textContent = error.message;

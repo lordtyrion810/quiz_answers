@@ -63,11 +63,12 @@ function render(state) {
   autoCorrect.innerHTML = state.prompts
     .map((prompt) => {
       const config = state.autoCorrect[prompt.id] || { enabled: false, answer: "" };
+      const aliases = Array.isArray(config.aliases) ? config.aliases.join(", ") : config.answer || "";
       return `
         <div class="auto-correct-row">
           <label>
             ${escapeHtml(prompt.label)}
-            <input data-autocorrect-answer="${prompt.id}" maxlength="200" value="${escapeAttribute(config.answer || "")}" placeholder="Accepted answer">
+            <input data-autocorrect-answer="${prompt.id}" maxlength="400" value="${escapeAttribute(aliases)}" placeholder="Accepted answers, comma-separated">
           </label>
           <label class="switch-row compact-switch">
             <span>
@@ -85,7 +86,7 @@ function render(state) {
     input.addEventListener("change", () => {
       const promptId = input.dataset.autocorrectAnswer;
       const checkbox = autoCorrect.querySelector(`[data-autocorrect-enabled="${cssEscape(promptId)}"]`);
-      adminPost("/api/admin/autocorrect", { promptId, answer: input.value, enabled: checkbox?.checked === true });
+      adminPost("/api/admin/autocorrect", { promptId, aliases: splitAliases(input.value), enabled: checkbox?.checked === true });
     });
   });
 
@@ -93,7 +94,7 @@ function render(state) {
     input.addEventListener("change", () => {
       const promptId = input.dataset.autocorrectEnabled;
       const answerInput = autoCorrect.querySelector(`[data-autocorrect-answer="${cssEscape(promptId)}"]`);
-      adminPost("/api/admin/autocorrect", { promptId, answer: answerInput?.value || "", enabled: input.checked });
+      adminPost("/api/admin/autocorrect", { promptId, aliases: splitAliases(answerInput?.value || ""), enabled: input.checked });
     });
   });
 
@@ -102,14 +103,22 @@ function render(state) {
         .map((team) => {
           return `
             <div class="team-item">
-              <strong>${escapeHtml(team.name)}</strong>
+              <input data-team-name="${team.id}" maxlength="50" value="${escapeAttribute(team.name)}" aria-label="Team name">
               <span>${state.submissions.filter((submission) => submission.teamId === team.id).length} submissions</span>
+              <button class="secondary" data-rename-team="${team.id}" type="button">Rename</button>
               <button class="danger" data-remove-team="${team.id}" type="button">Remove</button>
             </div>
           `;
         })
         .join("")
     : "<p class=\"subtle\">No teams yet.</p>";
+
+  teams.querySelectorAll("[data-rename-team]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const input = teams.querySelector(`[data-team-name="${cssEscape(button.dataset.renameTeam)}"]`);
+      adminPost("/api/admin/rename-team", { teamId: button.dataset.renameTeam, name: input?.value || "" });
+    });
+  });
 
   teams.querySelectorAll("[data-remove-team]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -126,6 +135,21 @@ function render(state) {
         .map((team) => `<li><span>${escapeHtml(team.name)}</span><strong>${team.score}</strong></li>`)
         .join("")
     : "<li><span>No scores yet</span><strong>0</strong></li>";
+
+  document.querySelector(".leaderboard-toggle")?.remove();
+  scores.insertAdjacentHTML("beforebegin", `
+    <label class="switch-row leaderboard-toggle">
+      <span>
+        <strong>Player leaderboard</strong>
+        <small>${state.settings?.showLeaderboard ? "Visible to teams" : "Hidden from teams"}</small>
+      </span>
+      <input type="checkbox" data-setting="showLeaderboard" ${state.settings?.showLeaderboard ? "checked" : ""}>
+    </label>
+  `);
+
+  document.querySelector("[data-setting=\"showLeaderboard\"]").addEventListener("change", (event) => {
+    adminPost("/api/admin/settings", { showLeaderboard: event.currentTarget.checked });
+  });
 
   const rankedTeams = state.teams.slice().sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
   scoreTable.innerHTML = state.teams.length
@@ -269,6 +293,7 @@ function renderSubmissionRow(submission, prompts) {
         <div class="submission-actions">
           <button class="correct" data-mark="correct" data-id="${submission.id}" type="button">Correct</button>
           <button class="wrong" data-mark="wrong" data-id="${submission.id}" type="button">Wrong</button>
+          <button class="secondary" data-mark="pending" data-id="${submission.id}" type="button">Pending</button>
         </div>
       </td>
     </tr>
@@ -279,6 +304,13 @@ function submissionStatus(submission) {
   if (submission.correct === true) return "correct";
   if (submission.correct === false) return "wrong";
   return "pending";
+}
+
+function splitAliases(value) {
+  return String(value || "")
+    .split(",")
+    .map((alias) => alias.trim())
+    .filter(Boolean);
 }
 
 function shortLabel(prompt) {

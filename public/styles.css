@@ -376,6 +376,10 @@ button.correct {
   padding: 0;
 }
 
+.leaderboard-toggle {
+  margin-top: 12px;
+}
+
 .score-list li {
   display: flex;
   justify-content: space-between;
@@ -461,7 +465,7 @@ button.correct {
 
 .submission-actions {
   display: grid;
-  grid-template-columns: repeat(2, auto);
+  grid-template-columns: repeat(3, auto);
   gap: 8px;
   justify-content: start;
 }
@@ -474,7 +478,7 @@ button.correct {
 
 .team-item {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: minmax(180px, 1fr) auto auto auto;
   gap: 10px;
   align-items: center;
   padding: 12px;
